@@ -2,7 +2,7 @@ import 'graphql-import-node'
 import { makeExecutableSchema } from "@graphql-tools/schema";
 import { GraphQLContext } from "./context";
 import typeDefs from "./schema.graphql";
-import { Link } from "@prisma/client";
+import { Link, User } from "@prisma/client";
 import { APP_SECRET } from "./auth";
 import { hash, compare } from "bcryptjs";
 import { sign } from "jsonwebtoken";
@@ -25,6 +25,19 @@ const resolvers = {
     id: (parent: Link) => parent.id,
     description: (parent: Link) => parent.description,
     url: (parent: Link) => parent.url,
+    postedBy: async (parent: Link, args: {}, context: GraphQLContext) => {
+      if (!parent.postedById) {
+        return null;
+      }
+
+      return context.prisma.link
+        .findUnique({ where: { id: parent.id } })
+        .postedBy();
+    },
+  },
+  User: {
+    links: (parent: User, args: {}, context: GraphQLContext) =>
+      context.prisma.user.findUnique({ where: { id: parent.id } }).links(),
   },
   Mutation: {
     signup: async (
@@ -69,17 +82,19 @@ const resolvers = {
         user,
       };
     },
-    post: (
-      parent: unknown,
-      args: { description: string; url: string },
-      context: GraphQLContext
-    ) => {
-      const newLink = context.prisma.link.create({
+    post: async (parent: unknown, args: { url: string; description: string }, context: GraphQLContext) => {
+      if (context.currentUser === null) {
+        throw new Error("Unauthenticated!");
+      }
+
+      const newLink = await context.prisma.link.create({
         data: {
           url: args.url,
           description: args.description,
+          postedBy: { connect: { id: context.currentUser.id } },
         },
       });
+
       return newLink;
     },
   },
