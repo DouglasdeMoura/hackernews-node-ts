@@ -11,8 +11,18 @@ datasource db {
 }
 
 model Link {
-  id        String @id @default(cuid())
+  id          String   @id @default(cuid())
   createdAt   DateTime @default(now())
-  url       String
+  url         String
   description String
+  postedBy    User?    @relation(fields: [postedById], references: [id])
+  postedById  String?
+}
+
+model User {
+  id       String @id @default(cuid())
+  name     String
+  email    String @unique
+  password String
+  links    Link[]
 }
