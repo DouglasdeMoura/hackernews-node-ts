@@ -1,12 +1,12 @@
 import fastify from "fastify";
-import { getGraphQLParameters, processRequest, Request, sendResult } from "graphql-helix";
+import { getGraphQLParameters, processRequest, Request, renderGraphiQL, shouldRenderGraphiQL, sendResult } from "graphql-helix";
 import { schema } from "./schema";
 
 async function main() {
   const server = fastify();
 
   server.route({
-    method: "POST",
+    method: ["POST", "GET"],
     url: "/graphql",
     handler: async (req, reply) => {
       const request: Request = {
@@ -15,6 +15,17 @@ async function main() {
         query: req.query,
         body: req.body,
       };
+
+      if (shouldRenderGraphiQL(request)) {
+        reply.header("Content-Type", "text/html");
+        reply.send(
+          renderGraphiQL({
+            endpoint: "/graphql",
+          })
+        );
+
+        return;
+      }
 
       const { operationName, query, variables } = getGraphQLParameters(request);
 
@@ -31,7 +42,7 @@ async function main() {
   });
 
   server.listen(3000, "0.0.0.0", () => {
-    console.log(`Server is running on http://localhost:3000/`);
+    console.log(`GraphQL API is running on http://localhost:3000/graphql`);
   });
 }
 
