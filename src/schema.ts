@@ -1,30 +1,29 @@
 import 'graphql-import-node'
-import { makeExecutableSchema } from "@graphql-tools/schema";
-import { GraphQLContext } from "./context";
-import typeDefs from "./schema.graphql";
-import { Link, User, Prisma } from "@prisma/client";
-import { APP_SECRET } from "./auth";
-import { hash, compare } from "bcryptjs";
-import { sign } from "jsonwebtoken";
-import { PubSubChannels } from './pubsub';
+import { makeExecutableSchema } from '@graphql-tools/schema'
+import { Link, User, Prisma } from '@prisma/client'
+import { hash, compare } from 'bcryptjs'
+import { sign } from 'jsonwebtoken'
+
+import { APP_SECRET } from './auth'
+import { GraphQLContext } from './context'
+import { PubSubChannels } from './pubsub'
+import typeDefs from './schema.graphql'
+
+type FeedArgs = {
+  filter?: string
+  skip?: number
+  take?: number
+  orderBy?: {
+    description?: Prisma.SortOrder
+    url?: Prisma.SortOrder
+    createdAt?: Prisma.SortOrder
+  }
+}
 
 const resolvers = {
   Query: {
     info: () => `This is the API of a Hackernews Clone`,
-    feed: async (
-      parent: unknown,
-      args: {
-        filter?: string;
-        skip?: number;
-        take?: number;
-        orderBy?: {
-          description?: Prisma.SortOrder;
-          url?: Prisma.SortOrder;
-          createdAt?: Prisma.SortOrder;
-        };
-      },
-      context: GraphQLContext
-    ) => {
+    feed: async (_parent: unknown, args: FeedArgs, context: GraphQLContext) => {
       const where = args.filter
         ? {
             OR: [
@@ -32,101 +31,105 @@ const resolvers = {
               { url: { contains: args.filter } },
             ],
           }
-        : {};
+        : {}
 
-      const totalCount = await context.prisma.link.count({ where });
+      const totalCount = await context.prisma.link.count({ where })
       const links = await context.prisma.link.findMany({
         where,
         skip: args.skip,
         take: args.take,
         orderBy: args.orderBy,
-      });
+      })
 
       return {
         count: totalCount,
         links,
-      };
+      }
     },
-    me: (parent: unknown, args: {}, context: GraphQLContext) => {
+    me: (_parent: unknown, _args: unknown, context: GraphQLContext) => {
       if (context.currentUser === null) {
-        throw new Error("Unauthenticated!");
+        throw new Error('Unauthenticated!')
       }
 
-      return context.currentUser;
+      return context.currentUser
     },
   },
   Vote: {
-    link: (parent: User, args: {}, context: GraphQLContext) =>
+    link: (parent: User, _args: unknown, context: GraphQLContext) =>
       context.prisma.vote.findUnique({ where: { id: parent.id } }).link(),
-    user: (parent: User, args: {}, context: GraphQLContext) =>
+    user: (parent: User, _args: unknown, context: GraphQLContext) =>
       context.prisma.vote.findUnique({ where: { id: parent.id } }).user(),
   },
   Link: {
     id: (parent: Link) => parent.id,
     description: (parent: Link) => parent.description,
     url: (parent: Link) => parent.url,
-    postedBy: async (parent: Link, args: {}, context: GraphQLContext) => {
+    postedBy: async (parent: Link, _args: unknown, context: GraphQLContext) => {
       if (!parent.postedById) {
-        return null;
+        return null
       }
 
       return context.prisma.link
         .findUnique({ where: { id: parent.id } })
-        .postedBy();
+        .postedBy()
     },
-    votes: (parent: Link, args: {}, context: GraphQLContext) =>
+    votes: (parent: Link, _args: unknown, context: GraphQLContext) =>
       context.prisma.link.findUnique({ where: { id: parent.id } }).votes(),
   },
   User: {
-    links: (parent: User, args: {}, context: GraphQLContext) =>
+    links: (parent: User, _args: unknown, context: GraphQLContext) =>
       context.prisma.user.findUnique({ where: { id: parent.id } }).links(),
   },
   Mutation: {
     signup: async (
       parent: unknown,
       args: { email: string; password: string; name: string },
-      context: GraphQLContext
+      context: GraphQLContext,
     ) => {
-      const password = await hash(args.password, 10);
+      const password = await hash(args.password, 10)
 
       const user = await context.prisma.user.create({
         data: { ...args, password },
-      });
+      })
 
-      const token = sign({ userId: user.id }, APP_SECRET);
+      const token = sign({ userId: user.id }, APP_SECRET)
 
       return {
         token,
         user,
-      };
+      }
     },
     login: async (
       parent: unknown,
       args: { email: string; password: string },
-      context: GraphQLContext
+      context: GraphQLContext,
     ) => {
       const user = await context.prisma.user.findUnique({
         where: { email: args.email },
-      });
+      })
       if (!user) {
-        throw new Error("No such user found");
+        throw new Error('No such user found')
       }
 
-      const valid = await compare(args.password, user.password);
+      const valid = await compare(args.password, user.password)
       if (!valid) {
-        throw new Error("Invalid password");
+        throw new Error('Invalid password')
       }
 
-      const token = sign({ userId: user.id }, APP_SECRET);
+      const token = sign({ userId: user.id }, APP_SECRET)
 
       return {
         token,
         user,
-      };
+      }
     },
-    post: async (parent: unknown, args: { url: string; description: string }, context: GraphQLContext) => {
+    post: async (
+      parent: unknown,
+      args: { url: string; description: string },
+      context: GraphQLContext,
+    ) => {
       if (context.currentUser === null) {
-        throw new Error("Unauthenticated!");
+        throw new Error('Unauthenticated!')
       }
 
       const newLink = await context.prisma.link.create({
@@ -135,22 +138,22 @@ const resolvers = {
           description: args.description,
           postedBy: { connect: { id: context.currentUser.id } },
         },
-      });
+      })
 
-      context.pubSub.publish("newLink", { createdLink: newLink });
+      context.pubSub.publish('newLink', { createdLink: newLink })
 
-      return newLink;
+      return newLink
     },
     vote: async (
       parent: unknown,
       args: { linkId: string },
-      context: GraphQLContext
+      context: GraphQLContext,
     ) => {
       if (!context.currentUser) {
-        throw new Error("You must login in order to use upvote!");
+        throw new Error('You must login in order to use upvote!')
       }
 
-      const userId = context.currentUser.id;
+      const userId = context.currentUser.id
 
       const vote = await context.prisma.vote.findUnique({
         where: {
@@ -159,10 +162,10 @@ const resolvers = {
             userId: userId,
           },
         },
-      });
+      })
 
       if (vote !== null) {
-        throw new Error(`Already voted for link: ${args.linkId}`);
+        throw new Error(`Already voted for link: ${args.linkId}`)
       }
 
       const newVote = await context.prisma.vote.create({
@@ -170,35 +173,42 @@ const resolvers = {
           user: { connect: { id: userId } },
           link: { connect: { id: args.linkId } },
         },
-      });
+      })
 
-      context.pubSub.publish("newVote", { createdVote: newVote });
+      context.pubSub.publish('newVote', { createdVote: newVote })
 
-      return newVote;
+      return newVote
     },
   },
   Subscription: {
     newLink: {
-      subscribe: (parent: unknown, args: {}, context: GraphQLContext) => {
-        return context.pubSub.asyncIterator("newLink");
+      subscribe: (
+        _parent: unknown,
+        _args: unknown,
+        context: GraphQLContext,
+      ) => {
+        return context.pubSub.asyncIterator('newLink')
       },
-      resolve: (payload: PubSubChannels["newLink"][0]) => {
-        return payload.createdLink;
+      resolve: (payload: PubSubChannels['newLink'][0]) => {
+        return payload.createdLink
       },
     },
     newVote: {
-      subscribe: (parent: unknown, args: {}, context: GraphQLContext) => {
-        return context.pubSub.asyncIterator("newVote");
+      subscribe: (
+        _parent: unknown,
+        _args: unknown,
+        context: GraphQLContext,
+      ) => {
+        return context.pubSub.asyncIterator('newVote')
       },
-      resolve: (payload: PubSubChannels["newVote"][0]) => {
-        return payload.createdVote;
+      resolve: (payload: PubSubChannels['newVote'][0]) => {
+        return payload.createdVote
       },
     },
   },
-};
+}
 
 export const schema = makeExecutableSchema({
   typeDefs,
   resolvers,
-});
-
+})
